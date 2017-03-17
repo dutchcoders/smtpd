@@ -63,11 +63,14 @@ func main() {
 		}
 	}()
 
-	smtpd.HandleFunc(func(msg smtpd.Message) error {
+	handler := smtpd.HandleFunc(func(msg smtpd.Message) error {
 		receiveChan <- msg
 		return nil
 	})
 
-	addr := fmt.Sprintf(":%s", os.Getenv("PORT"))
-	smtpd.ListenAndServe(addr)
+	server := smtpd.New(
+		smtpd.ListenAddr(fmt.Sprintf(":%s", os.Getenv("PORT"))),
+	)
+
+	server.ListenAndServe(handler)
 }
