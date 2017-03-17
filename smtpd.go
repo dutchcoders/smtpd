@@ -68,7 +68,7 @@ func (s *Server) ListenAndServe(handler Handler) error {
 	return nil
 }
 
-func New(options ...func(*Config)) *Server {
+func New(options ...func(*Config) error) (*Server, error) {
 	cfg := &Config{
 		ListenAddr: ":8025",
 		Banner: func() string {
@@ -78,14 +78,16 @@ func New(options ...func(*Config)) *Server {
 	}
 
 	for _, optionFn := range options {
-		optionFn(cfg)
+		if err := optionFn(cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	server := &Server{
 		Config: cfg,
 	}
 
-	return server
+	return server, nil
 }
 
 func (s *ServeMux) Serve(msg Message) error {

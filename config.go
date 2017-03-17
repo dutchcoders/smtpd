@@ -10,20 +10,23 @@ type Config struct {
 	TLSConfig  *tls.Config
 }
 
-func ListenAddr(v string) func(*Config) {
-	return func(cfg *Config) {
+func ListenAddr(v string) func(*Config) error {
+	return func(cfg *Config) error {
 		cfg.ListenAddr = v
+		return nil
 	}
 }
 
-func TLSConfig(v *tls.Config) func(*Config) {
-	return func(cfg *Config) {
+func TLSConfig(v *tls.Config) func(*Config) error {
+	return func(cfg *Config) error {
 		cfg.TLSConfig = v
+		return nil
 	}
 }
 
-func Banner(fn func() string) func(*Config) {
-	return func(cfg *Config) {
+func Banner(fn func() string) func(*Config) error {
+	return func(cfg *Config) error {
 		cfg.Banner = fn
+		return nil
 	}
 }

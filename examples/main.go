@@ -68,9 +68,13 @@ func main() {
 		return nil
 	})
 
-	server := smtpd.New(
+	server, err := smtpd.New(
 		smtpd.ListenAddr(fmt.Sprintf(":%s", os.Getenv("PORT"))),
 	)
+
+	if err != nil {
+		panic(err)
+	}
 
 	server.ListenAndServe(handler)
 }
