@@ -259,10 +259,7 @@ func (c *conn) serve() {
 	// todo add idle timeout here
 
 	state := startState
-	for {
-		if state != nil {
-			break
-		}
+	for state != nil {
 		state = state(c)
 	}
 }
