@@ -1,6 +1,9 @@
 package smtpd
 
 import (
+	"context"
+	"crypto/tls"
+	"fmt"
 	"net"
 	"net/mail"
 	"sync"
@@ -44,11 +47,43 @@ type Server struct {
 	Handler Handler
 }
 
-func (s *Server) ListenAndServe(handler Handler) error {
-	ln, err := net.Listen("tcp", s.ListenAddr)
-	if err != nil {
-		return err
+func (s *Server) ListenAndServe(ctx context.Context, handler Handler) error {
+	lctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	for _, ln := range s.Listeners {
+		switch ln.Mode {
+		case "plain":
+			//STARTTLS is optional.
+			listen, err := net.Listen("tcp", ln.Address+":"+ln.Port)
+			if err != nil {
+				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
+			}
+			go s.listenAndServe(lctx, listen, true)
+		case "starttls":
+			//TODO (jerry 2020-03-30): Force STARTTLS.
+			listen, err := net.Listen("tcp", ln.Address+":"+ln.Port)
+			if err != nil {
+				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
+			}
+			go s.listenAndServe(lctx, listen, true)
+		case "tls":
+			//STARTTLS needs to be disabled.
+			listen, err := tls.Listen("tcp", ln.Address+":"+ln.Port, s.TLSConfig)
+			if err != nil {
+				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
+			}
+			go s.listenAndServe(lctx, listen, false)
+		}
 	}
+
+	<-lctx.Done()
+
+	return nil
+}
+
+func (s *Server) listenAndServe(ctx context.Context, ln net.Listener, starttls bool) {
+	wg := sync.WaitGroup{}
 
 	for {
 		conn, err := ln.Accept()
@@ -57,15 +92,20 @@ func (s *Server) ListenAndServe(handler Handler) error {
 			continue
 		}
 
-		c, err := s.newConn(conn)
+		c, err := s.newConn(conn, starttls)
 		if err != nil {
 			continue
 		}
 
+		wg.Add(1)
 		go c.serve()
-	}
 
-	return nil
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+	}
 }
 
 func New(options ...func(*Config) error) (*Server, error) {
@@ -98,11 +138,12 @@ func (s *ServeMux) Serve(msg Message) error {
 	return nil
 }
 
-func (s *Server) newConn(rwc net.Conn) (c *conn, err error) {
+func (s *Server) newConn(rwc net.Conn, starttls bool) (c *conn, err error) {
 	c = &conn{
-		server: s,
-		rwc:    rwc,
-		i:      0,
+		server:   s,
+		rwc:      rwc,
+		i:        0,
+		starttls: starttls,
 	}
 
 	c.msg = c.newMessage()

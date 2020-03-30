@@ -13,12 +13,13 @@ import (
 )
 
 type conn struct {
-	rwc    net.Conn
-	Text   *textproto.Conn
-	domain string
-	msg    *Message
-	server *Server
-	i      int
+	rwc      net.Conn
+	Text     *textproto.Conn
+	domain   string
+	msg      *Message
+	server   *Server
+	i        int
+	starttls bool //true: STARTTLS command is available, false: not.
 }
 
 func (c *conn) RemoteAddr() net.Addr {
@@ -176,6 +177,10 @@ func loopState(c *conn) stateFn {
 		c.PrintfLine("250 Ok")
 		return mailFromState
 	} else if isCommand(line, "STARTTLS") {
+		if !c.starttls {
+			return unrecognizedState
+		}
+
 		c.PrintfLine("220 Ready to start TLS")
 
 		tlsConn := tls.Server(c.rwc, c.server.TLSConfig)
@@ -241,7 +246,9 @@ func helloState(c *conn) stateFn {
 		c.PrintfLine("250-Hello %s", domain)
 		c.PrintfLine("250-SIZE 35882577")
 		c.PrintfLine("250-8BITMIME")
-		c.PrintfLine("250-STARTTLS")
+		if c.starttls {
+			c.PrintfLine("250-STARTTLS")
+		}
 		c.PrintfLine("250-ENHANCEDSTATUSCODES")
 		c.PrintfLine("250-PIPELINING")
 		c.PrintfLine("250-CHUNKING")

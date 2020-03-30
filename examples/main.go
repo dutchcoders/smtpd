@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/mail"
-	"os"
 	"time"
 
 	"github.com/dutchcoders/smtpd"
@@ -68,8 +67,21 @@ func main() {
 		return nil
 	})
 
+	l1 := smtpd.Listener{
+		Address: "127.0.0.1",
+		Port:    "8025",
+		Mode:    "plain",
+	}
+
+	l2 := smtpd.Listener{
+		Address: "127.0.0.1",
+		Port:    "8026",
+		Mode:    "plain",
+	}
+
 	server, err := smtpd.New(
-		smtpd.ListenAddr(fmt.Sprintf(":%s", os.Getenv("PORT"))),
+		smtpd.WithListener(l1),
+		smtpd.WithListener(l2),
 	)
 
 	if err != nil {
