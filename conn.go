@@ -17,7 +17,7 @@ type conn struct {
 	Text     *textproto.Conn
 	domain   string
 	msg      *Message
-	server   *Server
+	server   *smtpServer
 	i        int
 	starttls bool //true: STARTTLS command is available, false: not.
 }

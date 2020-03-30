@@ -1,11 +1,12 @@
 package smtpd
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
 	"net/mail"
+	"os"
+	"os/signal"
 	"sync"
 
 	logging "github.com/op/go-logging"
@@ -44,14 +45,25 @@ func NewServeMux() *ServeMux { return &ServeMux{m: make([]HandlerFunc, 0)} }
 
 type Server struct {
 	*Config
-	Handler Handler
 }
 
-func (s *Server) ListenAndServe(ctx context.Context, handler Handler) error {
-	lctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+type smtpServer struct {
+	Banner    func() string
+	TLSConfig *tls.Config
+	Handler   Handler
+
+	starttls bool
+}
+
+func (s *Server) ListenAndServe() error {
 
 	for _, ln := range s.Listeners {
+		server := &smtpServer{
+			Banner:    ln.Banner,
+			TLSConfig: ln.TLSConfig,
+			Handler:   ln.Handler,
+		}
+
 		switch ln.Mode {
 		case "plain":
 			//STARTTLS is optional.
@@ -59,31 +71,51 @@ func (s *Server) ListenAndServe(ctx context.Context, handler Handler) error {
 			if err != nil {
 				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
 			}
-			go s.listenAndServe(lctx, listen, true)
+
+			server.starttls = true
+			if server.TLSConfig == nil {
+				server.starttls = false
+			}
+
+			go server.listenAndServe(listen)
 		case "starttls":
 			//TODO (jerry 2020-03-30): Force STARTTLS.
+			if server.TLSConfig == nil {
+				return fmt.Errorf("Mode: tls, need a tls.Config")
+			}
+
 			listen, err := net.Listen("tcp", ln.Address+":"+ln.Port)
 			if err != nil {
 				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
 			}
-			go s.listenAndServe(lctx, listen, true)
+
+			server.starttls = true
+
+			go server.listenAndServe(listen)
 		case "tls":
-			//STARTTLS needs to be disabled.
-			listen, err := tls.Listen("tcp", ln.Address+":"+ln.Port, s.TLSConfig)
+			if server.TLSConfig == nil {
+				return fmt.Errorf("Mode: tls, need a tls.Config")
+			}
+
+			listen, err := tls.Listen("tcp", ln.Address+":"+ln.Port, server.TLSConfig)
 			if err != nil {
 				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
 			}
-			go s.listenAndServe(lctx, listen, false)
+
+			server.starttls = false
+
+			go server.listenAndServe(listen)
 		}
 	}
 
-	<-lctx.Done()
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt)
+	<-sigs
 
 	return nil
 }
 
-func (s *Server) listenAndServe(ctx context.Context, ln net.Listener, starttls bool) {
-	wg := sync.WaitGroup{}
+func (s *smtpServer) listenAndServe(ln net.Listener) {
 
 	for {
 		conn, err := ln.Accept()
@@ -92,28 +124,18 @@ func (s *Server) listenAndServe(ctx context.Context, ln net.Listener, starttls b
 			continue
 		}
 
-		c, err := s.newConn(conn, starttls)
+		c, err := s.newConn(conn)
 		if err != nil {
 			continue
 		}
 
-		wg.Add(1)
 		go c.serve()
-
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
 	}
 }
 
 func New(options ...func(*Config) error) (*Server, error) {
 	cfg := &Config{
-		Banner: func() string {
-			return "DutchCoders SMTPd"
-		},
-		TLSConfig: nil,
+		Listeners: make([]Listener, 0, 2),
 	}
 
 	for _, optionFn := range options {
@@ -138,12 +160,11 @@ func (s *ServeMux) Serve(msg Message) error {
 	return nil
 }
 
-func (s *Server) newConn(rwc net.Conn, starttls bool) (c *conn, err error) {
+func (s *smtpServer) newConn(rwc net.Conn) (c *conn, err error) {
 	c = &conn{
-		server:   s,
-		rwc:      rwc,
-		i:        0,
-		starttls: starttls,
+		server: s,
+		rwc:    rwc,
+		i:      0,
 	}
 
 	c.msg = c.newMessage()
@@ -151,7 +172,7 @@ func (s *Server) newConn(rwc net.Conn, starttls bool) (c *conn, err error) {
 }
 
 type serverHandler struct {
-	srv *Server
+	srv *smtpServer
 }
 
 func (sh serverHandler) Serve(msg Message) {
