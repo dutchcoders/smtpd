@@ -70,7 +70,6 @@ func (s *Server) ListenAndServe(handler Handler) error {
 
 func New(options ...func(*Config) error) (*Server, error) {
 	cfg := &Config{
-		ListenAddr: ":8025",
 		Banner: func() string {
 			return "DutchCoders SMTPd"
 		},
