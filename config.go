@@ -2,23 +2,30 @@ package smtpd
 
 import (
 	"fmt"
+	"strconv"
 )
 
 type Config struct {
 	Listeners []Listener
 }
 
-func WithListener(l Listener) func(*Config) error {
+func WithListener(ll ...Listener) func(*Config) error {
 	return func(cfg *Config) error {
-		switch {
-		case l.Address == "":
-			return fmt.Errorf("Required field Listener.Address is empty!")
-		case l.Port == "":
-			return fmt.Errorf("Required field Listener.Port is empty!")
-		case l.Mode == "":
-			l.Mode = "plain"
+		for n, l := range ll {
+			if l.ID == "" {
+				l.ID = strconv.Itoa(n)
+			}
+
+			if l.Mode == "" {
+				l.Mode = "plain"
+			}
+
+			if l.Port == "" {
+				return fmt.Errorf("[%s] Required field \"Port\" is empty!", l.ID)
+			}
 		}
-		cfg.Listeners = append(cfg.Listeners, l)
+
+		cfg.Listeners = append(cfg.Listeners, ll...)
 		return nil
 	}
 }
