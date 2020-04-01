@@ -17,7 +17,7 @@ type conn struct {
 	Text   *textproto.Conn
 	domain string
 	msg    *Message
-	server *Server
+	server *smtpServer
 	i      int
 }
 
@@ -176,6 +176,10 @@ func loopState(c *conn) stateFn {
 		c.PrintfLine("250 Ok")
 		return mailFromState
 	} else if isCommand(line, "STARTTLS") {
+		if !c.server.starttls {
+			return unrecognizedState
+		}
+
 		c.PrintfLine("220 Ready to start TLS")
 
 		tlsConn := tls.Server(c.rwc, c.server.TLSConfig)
@@ -241,7 +245,9 @@ func helloState(c *conn) stateFn {
 		c.PrintfLine("250-Hello %s", domain)
 		c.PrintfLine("250-SIZE 35882577")
 		c.PrintfLine("250-8BITMIME")
-		c.PrintfLine("250-STARTTLS")
+		if c.server.starttls {
+			c.PrintfLine("250-STARTTLS")
+		}
 		c.PrintfLine("250-ENHANCEDSTATUSCODES")
 		c.PrintfLine("250-PIPELINING")
 		c.PrintfLine("250-CHUNKING")

@@ -1,6 +1,10 @@
 package smtpd
 
 import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
 	"net"
 	"net/mail"
 	"sync"
@@ -41,20 +45,119 @@ func NewServeMux() *ServeMux { return &ServeMux{m: make([]HandlerFunc, 0)} }
 
 type Server struct {
 	*Config
-	Handler Handler
 }
 
-func (s *Server) ListenAndServe(handler Handler) error {
-	ln, err := net.Listen("tcp", s.ListenAddr)
-	if err != nil {
-		return err
+type smtpServer struct {
+	ID        string
+	Banner    func() string
+	TLSConfig *tls.Config
+	Handler   Handler
+
+	starttls bool
+}
+
+var ErrServerClosed = errors.New("SMTPd Closed.")
+
+func (s *Server) ListenAndServe(ctx context.Context) error {
+	//lctx, cancel := context.WithCancel(ctx)
+	//defer cancel()
+
+	wg := &sync.WaitGroup{}
+
+	log.Debugf("Starting %d listeners.", len(s.Listeners))
+
+	//keep track of listeners to close them.
+	listeners := make([]*onceCloseListener, 0, 2)
+
+	for _, ln := range s.Listeners {
+		server := &smtpServer{
+			ID:        ln.ID,
+			Banner:    ln.Banner,
+			TLSConfig: ln.TLSConfig,
+			Handler:   ln.Handler,
+		}
+
+		var (
+			listen net.Listener
+			err    error
+		)
+
+		switch ln.Mode {
+		case "plain":
+			//STARTTLS is optional.
+			listen, err = net.Listen("tcp", ln.Address+":"+ln.Port)
+			if err != nil {
+				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
+			}
+
+			server.starttls = true
+			if server.TLSConfig == nil {
+				server.starttls = false
+			}
+		case "starttls":
+			//TODO (jerry 2020-03-30): Force STARTTLS.
+			if server.TLSConfig == nil {
+				return fmt.Errorf("Mode: tls, need a tls.Config")
+			}
+
+			listen, err = net.Listen("tcp", ln.Address+":"+ln.Port)
+			if err != nil {
+				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
+			}
+
+			server.starttls = true
+		case "tls":
+			if server.TLSConfig == nil {
+				return fmt.Errorf("Mode: tls, need a tls.Config")
+			}
+
+			listen, err = tls.Listen("tcp", ln.Address+":"+ln.Port, server.TLSConfig)
+			if err != nil {
+				return fmt.Errorf("Listener: %+v, error: %w", ln, err)
+			}
+
+			server.starttls = false
+		}
+
+		l := &onceCloseListener{Listener: listen}
+
+		wg.Add(1)
+		go server.serve(l, wg)
+		listeners = append(listeners, l)
+
+		log.Infof("Server: '%s' start serving on port %s in %s mode.", ln.ID, ln.Port, ln.Mode)
 	}
+
+	if len(listeners) == 0 {
+		return fmt.Errorf("No Listeners started; %w", ErrServerClosed)
+	}
+
+	//wait for cancelation for a clean shutdown.
+	<-ctx.Done()
+
+	log.Info("SMTPd shutting down...")
+
+	for _, l := range listeners {
+		l.Close()
+	}
+	wg.Wait()
+
+	return ErrServerClosed
+}
+
+func (s *smtpServer) serve(ln net.Listener, wg *sync.WaitGroup) {
+	defer ln.Close()
+	defer wg.Done()
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Error("Error accept: %s", err.Error())
-			continue
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				log.Debugf("Accept error: %v; retrying", err)
+				continue
+			}
+			log.Errorf("Error accept (Listener: %s): %v; closing", s.ID, err)
+			return
 		}
 
 		c, err := s.newConn(conn)
@@ -64,17 +167,11 @@ func (s *Server) ListenAndServe(handler Handler) error {
 
 		go c.serve()
 	}
-
-	return nil
 }
 
 func New(options ...func(*Config) error) (*Server, error) {
 	cfg := &Config{
-		ListenAddr: ":8025",
-		Banner: func() string {
-			return "DutchCoders SMTPd"
-		},
-		TLSConfig: nil,
+		Listeners: make([]Listener, 0, 2),
 	}
 
 	for _, optionFn := range options {
@@ -99,7 +196,7 @@ func (s *ServeMux) Serve(msg Message) error {
 	return nil
 }
 
-func (s *Server) newConn(rwc net.Conn) (c *conn, err error) {
+func (s *smtpServer) newConn(rwc net.Conn) (c *conn, err error) {
 	c = &conn{
 		server: s,
 		rwc:    rwc,
@@ -111,7 +208,7 @@ func (s *Server) newConn(rwc net.Conn) (c *conn, err error) {
 }
 
 type serverHandler struct {
-	srv *Server
+	srv *smtpServer
 }
 
 func (sh serverHandler) Serve(msg Message) {
@@ -121,4 +218,20 @@ func (sh serverHandler) Serve(msg Message) {
 	}
 
 	handler.Serve(msg)
+}
+
+//onceCloseListener wraps a net.Listener. Protecting it from multiple Close calls.
+type onceCloseListener struct {
+	net.Listener
+	once     sync.Once
+	closeErr error
+}
+
+func (oc *onceCloseListener) Close() error {
+	oc.once.Do(oc.close)
+	return oc.closeErr
+}
+
+func (oc *onceCloseListener) close() {
+	oc.closeErr = oc.Listener.Close()
 }

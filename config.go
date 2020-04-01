@@ -1,32 +1,24 @@
 package smtpd
 
 import (
-	"crypto/tls"
+	"fmt"
 )
 
 type Config struct {
-	ListenAddr string
-	Banner     func() string
-	TLSConfig  *tls.Config
+	Listeners []Listener
 }
 
-func ListenAddr(v string) func(*Config) error {
+func WithListener(l Listener) func(*Config) error {
 	return func(cfg *Config) error {
-		cfg.ListenAddr = v
-		return nil
-	}
-}
-
-func TLSConfig(v *tls.Config) func(*Config) error {
-	return func(cfg *Config) error {
-		cfg.TLSConfig = v
-		return nil
-	}
-}
-
-func Banner(fn func() string) func(*Config) error {
-	return func(cfg *Config) error {
-		cfg.Banner = fn
+		switch {
+		case l.Address == "":
+			return fmt.Errorf("Required field Listener.Address is empty!")
+		case l.Port == "":
+			return fmt.Errorf("Required field Listener.Port is empty!")
+		case l.Mode == "":
+			l.Mode = "plain"
+		}
+		cfg.Listeners = append(cfg.Listeners, l)
 		return nil
 	}
 }

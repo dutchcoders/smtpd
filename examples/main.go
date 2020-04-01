@@ -1,12 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/mail"
-	"os"
 	"time"
 
 	"github.com/dutchcoders/smtpd"
@@ -63,18 +63,46 @@ func main() {
 		}
 	}()
 
-	handler := smtpd.HandleFunc(func(msg smtpd.Message) error {
+	//set default Handler.
+	_ = smtpd.HandleFunc(func(msg smtpd.Message) error {
 		receiveChan <- msg
 		return nil
 	})
 
-	server, err := smtpd.New(
-		smtpd.ListenAddr(fmt.Sprintf(":%s", os.Getenv("PORT"))),
-	)
+	//uses the default Handler.
+	l1 := smtpd.Listener{
+		ID:      "Listener 1",
+		Address: "127.0.0.1",
+		Port:    "8025",
+		Mode:    "plain",
+		Banner:  func() string { return "SMTPd Listener 1" },
+	}
 
+	mux := smtpd.NewServeMux()
+	mux.HandleFunc(func(msg smtpd.Message) error {
+		fmt.Println("HandleFunc: Listener 2")
+		receiveChan <- msg
+		return nil
+	})
+
+	//uses a custom Handler.
+	l2 := smtpd.Listener{
+		ID:      "Listener 2",
+		Address: "127.0.0.1",
+		Port:    "8026",
+		Mode:    "plain",
+		Banner:  func() string { return "SMTPd TLS Listener 2" },
+		Handler: mux,
+	}
+
+	server, err := smtpd.New(
+		smtpd.WithListener(l1),
+		smtpd.WithListener(l2),
+	)
 	if err != nil {
 		panic(err)
 	}
 
-	server.ListenAndServe(handler)
+	//start listening on configured ports.
+	log.Println(server.ListenAndServe(context.Background()))
 }
