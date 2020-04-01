@@ -3,6 +3,7 @@ package smtpd
 import "crypto/tls"
 
 type Listener struct {
+	ID        string
 	Address   string
 	Port      string
 	Mode      string //smtp modes: 'plain (25)', 'tls (465)' or 'starttls (587)'
@@ -13,11 +14,19 @@ type Listener struct {
 
 func NewListener(options ...func(*Listener)) {
 	l := &Listener{
+		ID:     "-",
+		Mode:   "plain",
 		Banner: func() string { return "DutchCoders SMTPd" },
 	}
 
 	for _, opt := range options {
 		opt(l)
+	}
+}
+
+func ListenWithID(id string) func(*Listener) {
+	return func(l *Listener) {
+		l.ID = id
 	}
 }
 

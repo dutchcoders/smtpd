@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -70,6 +71,7 @@ func main() {
 
 	//uses the default Handler.
 	l1 := smtpd.Listener{
+		ID:      "Listener 1",
 		Address: "127.0.0.1",
 		Port:    "8025",
 		Mode:    "plain",
@@ -85,10 +87,11 @@ func main() {
 
 	//uses a custom Handler.
 	l2 := smtpd.Listener{
+		ID:      "Listener 2",
 		Address: "127.0.0.1",
 		Port:    "8026",
 		Mode:    "plain",
-		Banner:  func() string { return "SMTPd Listener 2" },
+		Banner:  func() string { return "SMTPd TLS Listener 2" },
 		Handler: mux,
 	}
 
@@ -101,5 +104,5 @@ func main() {
 	}
 
 	//start listening on configured ports.
-	server.ListenAndServe()
+	log.Println(server.ListenAndServe(context.Background()))
 }
