@@ -3,25 +3,41 @@ package smtpd
 import "crypto/tls"
 
 type Listener struct {
-	ID        string
-	Address   string
-	Port      string
-	Mode      string //smtp modes: 'plain (25)', 'tls (465)' or 'starttls (587)'
-	Banner    func() string
+	//ID optional text to identify the listener in the logs.
+	ID string
+
+	//Address optional network address to listen on. Default: localhost
+	Address string
+
+	//Port required port to listen on.
+	Port string
+
+	//Mode optional smtp mode to use.
+	//smtp modes: 'plain (25)', 'tls (465)' or 'starttls (587)'
+	Mode string
+
+	//Banner optional function returning the banner text shown to clients.
+	Banner func() string
+
+	//TLSConfig optional tls configuration.
+	//note: mode 'tls' and 'starttls' require one,
+	//  in mode 'plain' STARTTLS command will not be available without a config.
 	TLSConfig *tls.Config
-	Handler   Handler
+
+	//Handler optional handler(s) for this listener. Default: DefaultHandler
+	Handler Handler
 }
 
-func NewListener(options ...func(*Listener)) {
-	l := &Listener{
-		ID:     "-",
+func NewListener(options ...func(*Listener)) Listener {
+	l := Listener{
 		Mode:   "plain",
 		Banner: func() string { return "DutchCoders SMTPd" },
 	}
 
 	for _, opt := range options {
-		opt(l)
+		opt(&l)
 	}
+	return l
 }
 
 func ListenWithID(id string) func(*Listener) {

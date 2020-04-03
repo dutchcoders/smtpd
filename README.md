@@ -8,9 +8,12 @@ Simple smtp server library for GO. Each received message will call the handler, 
 package main
 
 import (
-        "github.com/dutchcoders/smtpd"
-        "os"
+		"context"
         "fmt"
+		"log"
+        "os"
+
+        "github.com/dutchcoders/smtpd"
 )
 
 func main() {
@@ -19,8 +22,18 @@ func main() {
                 return nil
         })
 
-        addr := fmt.Sprintf(":%s", os.Getenv("PORT"))
-        smtpd.ListenAndServe(addr)
+		listener := smtpd.NewListener(
+			smtpd.ListenWithPort(os.Getenv("PORT")),
+		)
+
+		server, err := smtpd.New(
+			smtpd.WithListener(listener),
+		)
+		if err != nil {
+			panic(err)
+		}
+
+        log.Fatal(server.ListenAndServe(context.Background()))
 }
 ```
 

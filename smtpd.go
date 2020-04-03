@@ -58,6 +58,8 @@ type smtpServer struct {
 
 var ErrServerClosed = errors.New("SMTPd Closed.")
 
+//ListenAndServe starts serving smtp on the configured listeners.
+//Always returns an error.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	//lctx, cancel := context.WithCancel(ctx)
 	//defer cancel()
